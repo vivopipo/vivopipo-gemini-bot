@@ -1,10 +1,15 @@
 import os
+import time
+import logging
 import telebot
 from telebot import apihelper
 from google import genai
 from google.genai.errors import APIError
 
-# Настройка маршрутизации через apihelper для обхода сбоев прокси
+# 1. Глушим внутренний спам-логгер telebot, чтобы консоль больше не забивалась
+telebot.logger.setLevel(logging.CRITICAL)
+
+# 2. Настройка маршрутизации для обхода сбоев прокси
 apihelper.API_URL = "https://api.telegram.org/bot{0}/{1}"
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -95,14 +100,6 @@ def handle_message(message):
                 return
 
             chat_session = get_or_create_chat(message.chat.id)
-            
-            # Обрезка слишком длинной истории во избежание переполнения токенов
-            try:
-                history = chat_session.get_history()
-                if len(history) > 20:
-                    chat_session._history = history[-10:]
-            except Exception:
-                pass
 
             # Безопасный запрос к Gemini
             try:
@@ -110,12 +107,12 @@ def handle_message(message):
                 bot.reply_to(message, response.text)
             except APIError as e:
                 if e.code == 429:
-                    # Сбрасываем зависшую сессию для этого чата
+                    # При 429 авто-пересоздаем сессию, чтобы разлочить застрявший чат
                     chats_history[message.chat.id] = client.chats.create(
                         model='gemini-3.6-flash',
                         config={'system_instruction': SYSTEM_INSTRUCTION}
                     )
-                    bot.reply_to(message, "Поймал таймаут от Гугла. Я сбросил подвисшую сессию, попробуй написать ещё раз!")
+                    bot.reply_to(message, "Поймал таймаут от Гугла. Сбросил зависшую сессию, попробуй еще раз!")
                 elif e.code == 503:
                     bot.reply_to(message, "Сервера Гугла лагают (503). Попробуй еще раз через момент.")
                 else:
@@ -124,13 +121,13 @@ def handle_message(message):
     except Exception as e:
         print(f"Системная ошибка: {e}")
 
+# --- БЕЗОПАСНЫЙ ЗАПУСК ---
+
 if __name__ == "__main__":
-    import time
     print("Бот запущен...")
     while True:
         try:
-            # Увеличиваем таймауты, чтобы прокси PythonAnywhere успевал отреагировать
-            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+            bot.polling(none_stop=True, interval=2, timeout=30)
         except Exception as e:
-            print(f"Сбой подключения ({e}), переподключение через 5 секунд...")
-            time.sleep(5)
+            print(f"Сбой сети/прокси: {e}. Переподключение через 10 секунд...")
+            time.sleep(10)
