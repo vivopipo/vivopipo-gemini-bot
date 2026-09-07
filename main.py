@@ -120,5 +120,12 @@ def handle_message(message):
         print(f"Системная ошибка: {e}")
 
 if __name__ == "__main__":
+    import time
     print("Бот запущен...")
-    bot.infinity_polling()
+    while True:
+        try:
+            # Увеличиваем таймауты, чтобы прокси PythonAnywhere успевал отреагировать
+            bot.infinity_polling(timeout=20, long_polling_timeout=10)
+        except Exception as e:
+            print(f"Сбой подключения ({e}), переподключение через 5 секунд...")
+            time.sleep(5)
