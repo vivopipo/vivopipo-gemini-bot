@@ -27,8 +27,6 @@ def get_or_create_chat(chat_id):
         )
     return chats_history[chat_id]
 
-# --- КОМАНДЫ ---
-
 @bot.message_handler(commands=['start', 'help'])
 def send_help(message):
     text = (
@@ -63,8 +61,6 @@ def say_as_bot(message):
             
         bot.send_message(message.chat.id, text_to_send)
 
-# --- ОБРАБОТКА СООБЩЕНИЙ ---
-
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     if message.text and message.text.startswith('/'):
@@ -90,15 +86,28 @@ def handle_message(message):
 
             chat_session = get_or_create_chat(message.chat.id)
             
-            # Безопасный запрос с обработкой лимитов API
+            # Ограничиваем историю последних реплик, чтобы не забивать лимит токенов
+            try:
+                history = chat_session.get_history()
+                if len(history) > 20:
+                    # Оставляем только последние 10 реплик
+                    chat_session._history = history[-10:]
+            except Exception:
+                pass
+
             try:
                 response = chat_session.send_message(clean_text)
                 bot.reply_to(message, response.text)
             except APIError as e:
                 if e.code == 429:
-                    bot.reply_to(message, "Сорян, у меня таймаут от гугла (слишком много спама). Остыну через минуту.")
+                    # При 429 авто-сбрасываем гигантскую историю для этого чата
+                    chats_history[message.chat.id] = client.chats.create(
+                        model='gemini-3.6-flash',
+                        config={'system_instruction': SYSTEM_INSTRUCTION}
+                    )
+                    bot.reply_to(message, "Перегрелся от объёма текста, сбросил старый контекст. Пиши заново!")
                 elif e.code == 503:
-                    bot.reply_to(message, "Сервера Гугла приуныли (503). Попробуй еще раз через пару секунд.")
+                    bot.reply_to(message, "Гугл лагает (503). Попробуй через 5 секунд.")
                 else:
                     print(f"Ошибка API: {e}")
             
