@@ -1,12 +1,16 @@
 import os
-import time
 import telebot
+from telebot import apihelper
 from google import genai
 from google.genai.errors import APIError
+
+# Настройка маршрутизации через apihelper для обхода сбоев прокси
+apihelper.API_URL = "https://api.telegram.org/bot{0}/{1}"
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# Твой Telegram ID
 ADMIN_ID = 823050506 
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -27,13 +31,15 @@ def get_or_create_chat(chat_id):
         )
     return chats_history[chat_id]
 
+# --- КОМАНДЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ ---
+
 @bot.message_handler(commands=['start', 'help'])
 def send_help(message):
     text = (
         "Здорово! Я бот на базе Gemini.\n\n"
         "Команды:\n"
-        "/reset — Сбросить память диалога\n"
-        "/help — Справка"
+        "/reset — Сбросить память диалога в этом чате\n"
+        "/help — Показать эту справку"
     )
     bot.reply_to(message, text)
 
@@ -45,6 +51,8 @@ def reset_chat(message):
         config={'system_instruction': SYSTEM_INSTRUCTION}
     )
     bot.reply_to(message, "Память очищена, начинаем с чистого листа!")
+
+# --- КОМАНДА ДЛЯ АДМИНА ---
 
 @bot.message_handler(commands=['say'])
 def say_as_bot(message):
@@ -60,6 +68,8 @@ def say_as_bot(message):
             pass
             
         bot.send_message(message.chat.id, text_to_send)
+
+# --- ОСНОВНАЯ ЛОГИКА ---
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
@@ -86,28 +96,23 @@ def handle_message(message):
 
             chat_session = get_or_create_chat(message.chat.id)
             
-            # Ограничиваем историю последних реплик, чтобы не забивать лимит токенов
+            # Обрезка слишком длинной истории во избежание переполнения токенов
             try:
                 history = chat_session.get_history()
                 if len(history) > 20:
-                    # Оставляем только последние 10 реплик
                     chat_session._history = history[-10:]
             except Exception:
                 pass
 
+            # Безопасный запрос к Gemini
             try:
                 response = chat_session.send_message(clean_text)
                 bot.reply_to(message, response.text)
             except APIError as e:
                 if e.code == 429:
-                    # При 429 авто-сбрасываем гигантскую историю для этого чата
-                    chats_history[message.chat.id] = client.chats.create(
-                        model='gemini-3.6-flash',
-                        config={'system_instruction': SYSTEM_INSTRUCTION}
-                    )
-                    bot.reply_to(message, "Перегрелся от объёма текста, сбросил старый контекст. Пиши заново!")
+                    bot.reply_to(message, "Не так быстро! Дай пару секунд перевести дыхание.")
                 elif e.code == 503:
-                    bot.reply_to(message, "Гугл лагает (503). Попробуй через 5 секунд.")
+                    bot.reply_to(message, "Сервера Гугла лагают (503). Попробуй еще раз через момент.")
                 else:
                     print(f"Ошибка API: {e}")
             
