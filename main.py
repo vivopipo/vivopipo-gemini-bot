@@ -110,7 +110,12 @@ def handle_message(message):
                 bot.reply_to(message, response.text)
             except APIError as e:
                 if e.code == 429:
-                    bot.reply_to(message, "Не так быстро! Дай пару секунд перевести дыхание.")
+                    # Сбрасываем зависшую сессию для этого чата
+                    chats_history[message.chat.id] = client.chats.create(
+                        model='gemini-3.6-flash',
+                        config={'system_instruction': SYSTEM_INSTRUCTION}
+                    )
+                    bot.reply_to(message, "Поймал таймаут от Гугла. Я сбросил подвисшую сессию, попробуй написать ещё раз!")
                 elif e.code == 503:
                     bot.reply_to(message, "Сервера Гугла лагают (503). Попробуй еще раз через момент.")
                 else:
