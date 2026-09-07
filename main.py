@@ -6,16 +6,15 @@ from telebot import apihelper
 from google import genai
 from google.genai.errors import APIError
 
-# 1. Глушим внутренний спам-логгер telebot, чтобы консоль больше не забивалась
+# 1. Отключаем спам-логгер telebot для защиты от бана консоли
 telebot.logger.setLevel(logging.CRITICAL)
 
-# 2. Настройка маршрутизации для обхода сбоев прокси
+# 2. Фиксируем API URL для стабильности через прокси PythonAnywhere
 apihelper.API_URL = "https://api.telegram.org/bot{0}/{1}"
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Твой Telegram ID
 ADMIN_ID = 823050506 
 
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
@@ -51,10 +50,8 @@ def send_help(message):
 @bot.message_handler(commands=['reset'])
 def reset_chat(message):
     chat_id = message.chat.id
-    chats_history[chat_id] = client.chats.create(
-        model='gemini-3.6-flash',
-        config={'system_instruction': SYSTEM_INSTRUCTION}
-    )
+    if chat_id in chats_history:
+        del chats_history[chat_id]
     bot.reply_to(message, "Память очищена, начинаем с чистого листа!")
 
 # --- КОМАНДА ДЛЯ АДМИНА ---
@@ -107,14 +104,14 @@ def handle_message(message):
                 bot.reply_to(message, response.text)
             except APIError as e:
                 if e.code == 429:
-                    # При 429 авто-пересоздаем сессию, чтобы разлочить застрявший чат
-                    chats_history[message.chat.id] = client.chats.create(
-                        model='gemini-3.6-flash',
-                        config={'system_instruction': SYSTEM_INSTRUCTION}
-                    )
-                    bot.reply_to(message, "Поймал таймаут от Гугла. Сбросил зависшую сессию, попробуй еще раз!")
+                    # Удаляем сессию без немедленного пересоздания
+                    if message.chat.id in chats_history:
+                        del chats_history[message.chat.id]
+                    
+                    bot.reply_to(message, "Гугл временно заблокировал запросы (429). Подожди 1 минуту и напиши снова!")
+                    time.sleep(5)
                 elif e.code == 503:
-                    bot.reply_to(message, "Сервера Гугла лагают (503). Попробуй еще раз через момент.")
+                    bot.reply_to(message, "Сервера Гугла лагают (503). Попробуй через пару секунд.")
                 else:
                     print(f"Ошибка API: {e}")
             
@@ -131,3 +128,4 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Сбой сети/прокси: {e}. Переподключение через 10 секунд...")
             time.sleep(10)
+﻿
