@@ -105,6 +105,6 @@ def handle_message(message):
     except Exception as e:
         print(f"Системная ошибка: {e}")
 
-if name == "main":
+if __name__ == "__main__":
     print("Бот запущен...")
     bot.infinity_polling()
