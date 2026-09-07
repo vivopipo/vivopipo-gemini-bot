@@ -128,4 +128,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Сбой сети/прокси: {e}. Переподключение через 10 секунд...")
             time.sleep(10)
-﻿
